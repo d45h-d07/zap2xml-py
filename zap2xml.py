@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """zap2xml.py -- The simplest zap2it scraper I could write.
 
 Around June 2020 the `zap2xml.pl` I had stopped working.  It generated HTTP
@@ -37,7 +37,8 @@ def get_args():
       epilog='This tool is noisy to stdout; '
           'with cron use chronic from moreutils.')
   parser.add_argument(
-      '--aid', dest='zap_aid', type=str, default='gapzap',
+      # '--aid', dest='zap_aid', type=str, default='gapzap',
+      '--aid', dest='zap_aid', type=str, default='orbebb',
       help='Raw zap2it input parameter.  (Affiliate ID?)')
   parser.add_argument(
       '-c', '--country', dest='zap_country', type=str, default='USA',
@@ -58,6 +59,9 @@ def get_args():
       '--language', dest='zap_languagecode', type=str, default='en',
       help='Raw zap2it input parameter.  (Language.)')
   parser.add_argument(
+      '-n', '--num-days', dest='zap_days', type=int, default='14',
+      help='Raw zap2it input parameter.  (Preferences?)')
+  parser.add_argument(
       '--pref', dest='zap_pref', type=str, default='',
       help='Raw zap2it input parameter.  (Preferences?)')
   parser.add_argument(
@@ -76,7 +80,7 @@ def get_args():
 
 
 def get_cached(cache_dir, cache_key, delay, url):
-  cache_path = cache_dir.joinpath(cache_key)
+  cache_path = cache_dir.joinpath(str(cache_key))
   if cache_path.is_file():
     print('FROM CACHE:', url)
     with open(cache_path, 'rb') as f:
@@ -84,8 +88,15 @@ def get_cached(cache_dir, cache_key, delay, url):
   else:
     print('Fetching:  ', url)
     try:
-      resp = urllib.request.urlopen(url)
-      result = resp.read()
+        req = urllib.request.Request(
+        url,
+        headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0',
+            'Accept': 'application/json, text/plain, */*'
+            }
+        )
+        resp = urllib.request.urlopen(req)
+        result = resp.read()
     except urllib.error.HTTPError as e:
       if e.code == 400:
         print('Got a 400 error!  Ignoring it.')
@@ -114,8 +125,8 @@ def remove_stale_cache(cache_dir, zap_time):
 
 
 def tm_parse(tm):
-  tm = tm.replace('Z', '+00:00')
-  return datetime.datetime.fromisoformat(tm)
+  # tm = tm.replace('Z', '+00:00')
+  return datetime.datetime.fromisoformat(tm).astimezone()
 
 
 def sub_el(parent, name, text=None, **kwargs):
@@ -143,13 +154,13 @@ def main():
   remove_stale_cache(cache_dir, zap_time)
 
   out = ET.Element('tv')
-  out.set('source-info-url', 'http://tvlistings.zap2it.com/')
+  out.set('source-info-url', 'https://tvlistings.gracenote.com/')
   out.set('source-info-name', 'zap2it.com')
   out.set('generator-info-name', 'zap2xml.py')
   out.set('generator-info-url', 'github.com/arantius/zap2xml-py')
 
   # Fetch data in `zap_timespan` chunks.
-  for i in range(int(7 * 24 / args.zap_timespan)):
+  for i in range(int(args.zap_days * 24 / args.zap_timespan)):
     i_time = zap_time + (i * zap_time_window)
     i_dt = datetime.datetime.fromtimestamp(i_time)
     print('Getting data for', i_dt.isoformat())
@@ -157,7 +168,7 @@ def main():
     qs = base_qs.copy()
     qs['lineupId'] = '%s-%s-DEFAULT' % (args.zap_country, args.zap_headendId)
     qs['time'] = i_time
-    url = 'https://tvlistings.zap2it.com/api/grid?'
+    url = 'https://tvlistings.gracenote.com/api/grid?'
     url += urllib.parse.urlencode(qs)
 
     result = get_cached(cache_dir, str(i_time), args.delay, url)
@@ -221,7 +232,7 @@ def main():
         for f in event['filter']:
           sub_el(prog_out, 'genre', lang='en', text=f[7:])
 
-  out_path = pathlib.Path(__file__).parent.joinpath('xmltv.xml')
+    out_path = pathlib.Path(__file__).parent.joinpath('xmltv.xml')
   with open(out_path.absolute(), 'wb') as f:
     f.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
     f.write(ET.tostring(out, encoding='UTF-8'))
